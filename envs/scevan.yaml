@@ -1,0 +1,13 @@
+name: scevan
+channels:
+  - bu_cnio
+  - conda-forge
+  - bioconda
+  - r
+dependencies:
+  - r-devtools
+  - r-tidyverse
+  - ca-certificates
+  - openssl
+  - r-seurat
+prefix: /home/mjjimenez/mambaforge/envs/scevan

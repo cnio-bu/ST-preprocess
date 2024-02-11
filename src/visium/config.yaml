@@ -1,0 +1,44 @@
+# Path to data directory
+datadir: ""
+
+# Path to results directory
+outdir: ""
+
+# Path to logs directory
+logdir: ""
+
+# Path to patient sheet
+patients: patients.tsv
+
+# Parameters
+params:
+  deconvolution:
+    # Output of single-cell pipeline (resultspath/spacexr/)
+    ref_dir: ""
+  ssc_breast: ""
+  functional: ""
+
+# Resources
+resources:
+  default:
+    threads: 1
+    mem_mb: 16000
+    runtime: 480
+  spacexr_deconvolution:
+    mem_mb: 128000
+  seurat_cellcycle_normalise_sct:
+    mem_mb: 64000
+  seurat_annotations:
+    mem_mb: 64000
+  infercnv:
+    mem_mb: 128000
+    runtime: 1440
+  scevan:
+    mem_mb: 256000
+    runtime: 1440
+  seurat_clusters:
+    mem_mb: 64000
+    runtime: 1440
+  beyondcell_clusters:
+    mem_mb: 64000
+    runtime: 1440

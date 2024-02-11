@@ -1,0 +1,303 @@
+import os
+import pandas as pd
+import re
+
+#### GLOBAL PARAMETERS ###
+configfile: "config.yaml"
+
+DATADIR = config["datadir"]
+OUTDIR = config["outdir"]
+LOGDIR = config["logdir"]
+
+#### GLOBAL SCOPE FUNCTIONS ####
+def get_resource(rule,resource):
+    """
+    Gets the resource for each rule.
+    """
+    try:
+        return config["resources"][rule][resource]
+    except KeyError:
+        return config["resources"]["default"][resource]
+
+def get_parameters(patient, param, param_type = int):
+    """
+    Gets the parameter value for the specified patient as appears in PATIENTS table.
+    If the corresponding cell is "null" or empty, it returns None.
+    """
+    parameter = PATIENTS.loc[PATIENTS["patient"] == patient, param].tolist()[0]
+    if param_type != bool:
+        parameter = str(parameter)
+        if parameter.lower() == "null":
+            parameter = ""
+        elif re.search("max|min", parameter):
+            param_type = str
+        if parameter and not parameter.isspace():
+            parameter = [p.strip() for p in re.sub("\[|\]", "", str(parameter)).split(",")]
+            parameter = list(map(param_type, parameter))
+        else:
+            parameter = None
+    return parameter
+
+def get_slides(patient):
+    """
+    Returns a list with the slides of the specified patient.
+    """
+    n_slides = get_parameters(patient = patient, param = "slide")[0]
+    slides = ["slide" + str(x) for x in range(1, n_slides + 1)]
+    return slides
+
+def get_reference(patient):
+    """
+    Gets the path to the deconvolution reference for the specified patient, 
+    according to the tumour subtype.
+    """
+    subtype = get_parameters(patient, param = "ref_deconvolution", param_type = str)[0]
+    path = config["params"]["deconvolution"]["ref_dir"] + "/" + subtype + \
+           "/" + subtype + "_reference.rds"
+    return(path)
+
+#### PATIENTS TO ANALYZE ####
+PATIENTS = pd.read_csv(config["patients"], sep = "\t", comment = "#", keep_default_na = False).set_index("patient", drop = False)
+
+#### RULES ####
+rule all:
+    input: 
+        sensitivity = expand(f"{OUTDIR}/{{patient}}/beyondcell/scores/sensitivity/{{patient}}_spatial_bcs_sensitivity.rds", \
+                             patient = PATIENTS.index),
+        functional = expand(f"{OUTDIR}/{{patient}}/beyondcell/scores/functional/{{patient}}_spatial_bcs_functional.rds", \
+                             patient = PATIENTS.index)
+
+rule beyondcell_score_functional:
+    input: 
+        seurat = f"{OUTDIR}/{{patient}}/seurat/annotated/{{patient}}_spatial_SCTnormalised_annotated.rds",
+        geneset = config["params"]["functional"]
+    output: f"{OUTDIR}/{{patient}}/beyondcell/scores/functional/{{patient}}_spatial_bcs_functional.rds"
+    params:
+        expr_thres = lambda wildcards: get_parameters(wildcards.patient, param = "expr_thres", param_type = float)
+    log: f"{LOGDIR}/{{patient}}/beyondcell/scores/functional/{{patient}}_spatial_bcs_functional.log"
+    threads: 
+        get_resource("beyondcell_score", "threads")
+    resources:
+        mem_mb = get_resource("beyondcell_score", "mem_mb"),
+        runtime = get_resource("beyondcell_score", "runtime")
+    conda: "envs/beyondcell.yaml"
+    script: "scripts/beyondcell_score.R"
+
+rule beyondcell_score_sensitivity:
+    input: 
+        seurat = f"{OUTDIR}/{{patient}}/seurat/annotated/{{patient}}_spatial_SCTnormalised_annotated.rds",
+        geneset = config["params"]["ssc_breast"]
+    output: f"{OUTDIR}/{{patient}}/beyondcell/scores/sensitivity/{{patient}}_spatial_bcs_sensitivity.rds"
+    params:
+        expr_thres = lambda wildcards: get_parameters(wildcards.patient, param = "expr_thres", param_type = float)
+    log: f"{LOGDIR}/{{patient}}/beyondcell/scores/sensitivity/{{patient}}_spatial_bcs_sensitivity.log"
+    threads: 
+        get_resource("beyondcell_score", "threads")
+    resources:
+        mem_mb = get_resource("beyondcell_score", "mem_mb"),
+        runtime = get_resource("beyondcell_score", "runtime")
+    conda: "envs/beyondcell.yaml"
+    script: "scripts/beyondcell_score.R"
+
+rule seurat_annotations:
+    input: f"{OUTDIR}/{{patient}}/seurat/annotated/{{patient}}_spatial_SCTnormalised_clones.rds"
+    output: 
+        seurat = f"{OUTDIR}/{{patient}}/seurat/annotated/{{patient}}_spatial_SCTnormalised_annotated.rds",
+        sct_counts = f"{OUTDIR}/{{patient}}/seurat/annotated/metadata/{{patient}}_spatial_SCTnormalised.tsv",
+        metadata = f"{OUTDIR}/{{patient}}/seurat/annotated/metadata/{{patient}}_spatial_annotated.tsv"
+    log: f"{LOGDIR}/{{patient}}/seurat/annotated/{{patient}}_spatial_SCTnormalised_annotated.log"
+    threads: 
+        get_resource("seurat_annotations", "threads")
+    resources:
+        mem_mb = get_resource("seurat_annotations", "mem_mb"),
+        runtime = get_resource("seurat_annotations", "runtime")
+    conda: "envs/seurat.yaml"
+    script: "scripts/seurat_annotations.R"
+
+rule scevan:
+    input: f"{OUTDIR}/{{patient}}/seurat/annotated/{{patient}}_spatial_SCTnormalised_tumour.rds"
+    output: f"{OUTDIR}/{{patient}}/seurat/annotated/{{patient}}_spatial_SCTnormalised_clones.rds"
+    log: f"{LOGDIR}/{{patient}}/seurat/annotated/{{patient}}_spatial_SCTnormalised_clones.log"
+    threads: 
+        get_resource("scevan", "threads")
+    resources:
+        mem_mb = get_resource("scevan", "mem_mb"),
+        runtime = get_resource("scevan", "runtime")
+    conda: "scevan"
+    script: "scripts/scevan.R"
+
+rule seurat_tumour:
+    input:
+        seurat = f"{OUTDIR}/{{patient}}/seurat/normalised/{{patient}}_spatial_SCTnormalised.rds",
+        pathologist = f"{OUTDIR}/{{patient}}/annotations/pathologist/{{patient}}_pathologist.tsv",
+        deconvolution = lambda wildcards: expand(f"{OUTDIR}/{{patient}}/annotations/deconvolution/{{patient}}_{{slide}}_deconvolution.tsv", \
+                                                 patient = wildcards.patient, \
+                                                 slide = get_slides(wildcards.patient)),
+        estimate = f"{OUTDIR}/{{patient}}/annotations/estimate/{{patient}}_ESTIMATE.tsv"
+    output: f"{OUTDIR}/{{patient}}/seurat/annotated/{{patient}}_spatial_SCTnormalised_tumour.rds"
+    log: f"{LOGDIR}/{{patient}}/seurat/annotated/{{patient}}_spatial_SCTnormalised_tumour.log"
+    threads: 
+        get_resource("seurat_tumour", "threads")
+    resources:
+        mem_mb = get_resource("seurat_tumour", "mem_mb"),
+        runtime = get_resource("seurat_tumour", "runtime")
+    conda: "envs/seurat.yaml"
+    script: "scripts/seurat_tumour.R"
+
+rule estimate:
+    input: f"{OUTDIR}/{{patient}}/seurat/normalised/{{patient}}_spatial_SCTnormalised.rds"
+    output: f"{OUTDIR}/{{patient}}/annotations/estimate/{{patient}}_ESTIMATE.tsv"
+    log: f"{LOGDIR}/{{patient}}/annotations/estimate/{{patient}}_ESTIMATE.log"
+    threads: 
+        get_resource("estimate", "threads")
+    resources:
+        mem_mb = get_resource("estimate", "mem_mb"),
+        runtime = get_resource("estimate", "runtime")
+    conda: "estimate"
+    script: "scripts/estimate.R"
+
+rule spacexr_deconvolution:
+    input: 
+        ref = lambda wildcards: get_reference(wildcards.patient),
+        raw_counts = f"{OUTDIR}/{{patient}}/seurat/qc/{{patient}}_{{slide}}_raw_counts.tsv",
+        coordinates = f"{OUTDIR}/{{patient}}/seurat/qc/{{patient}}_{{slide}}_coordinates.tsv"
+    output: 
+        deconvolution = f"{OUTDIR}/{{patient}}/annotations/deconvolution/{{patient}}_{{slide}}_deconvolution.tsv"
+    log: f"{LOGDIR}/{{patient}}/annotations/deconvolution/{{patient}}_{{slide}}_deconvolution.log"
+    threads: 
+        get_resource("spacexr_deconvolution", "threads")
+    resources:
+        mem_mb = get_resource("spacexr_deconvolution", "mem_mb"),
+        runtime = get_resource("spacexr_deconvolution", "runtime")
+    conda: "spacexr"
+    script: "scripts/spacexr_deconvolution.R"
+
+rule pathologist:
+    input: f"{OUTDIR}/{{patient}}/seurat/qc/{{patient}}_spatial_filtered.rds"
+    output: f"{OUTDIR}/{{patient}}/annotations/pathologist/{{patient}}_pathologist.tsv"
+    log: f"{LOGDIR}/{{patient}}/annotationspathologist/{{patient}}_pathologist.log"
+    threads: 
+        get_resource("pathologist", "threads")
+    resources:
+        mem_mb = get_resource("pathologist", "mem_mb"),
+        runtime = get_resource("pathologist", "runtime")
+    conda: "envs/seurat.yaml"
+    script: "scripts/pathologist.R"
+
+rule seurat_cellcycle_normalise_sct:
+    input: f"{OUTDIR}/{{patient}}/seurat/qc/{{patient}}_spatial_aligned_filtered.rds"
+    output: f"{OUTDIR}/{{patient}}/seurat/normalised/{{patient}}_spatial_SCTnormalised.rds"
+    params:
+        regress_cell_cycle = lambda wildcards: get_parameters(wildcards.patient, param = "regress_cell_cycle", param_type = bool)
+    log: f"{LOGDIR}/{{patient}}/seurat/normalised/{{patient}}_spatial_SCTnormalised.log"
+    threads: 
+        get_resource("seurat_cellcycle_normalise_sct", "threads")
+    resources:
+        mem_mb = get_resource("seurat_cellcycle_normalise_sct", "mem_mb"),
+        runtime = get_resource("seurat_cellcycle_normalise_sct", "runtime")
+    conda: "envs/seurat.yaml"
+    script: "scripts/seurat_cellcycle_normalise_sct.R"
+
+rule seurat_align_slides:
+    input:
+        seurat = f"{OUTDIR}/{{patient}}/seurat/qc/{{patient}}_spatial_filtered.rds",
+        coords_aligned = lambda wildcards: expand(f"{OUTDIR}/{{patient}}/paste/align/{{slide}}_vs_slide1_coordinates_aligned.tsv", \
+                                                  patient = wildcards.patient, \
+                                                  slide = get_slides(wildcards.patient))
+    params:
+        ref = "slide1"
+    output: f"{OUTDIR}/{{patient}}/seurat/qc/{{patient}}_spatial_aligned_filtered.rds"
+    log: f"{LOGDIR}/{{patient}}/seurat/qc/{{patient}}_spatial_aligned_filtered.log"
+    threads: 
+        get_resource("seurat_align_slides", "threads")
+    resources:
+        mem_mb = get_resource("seurat_align_slides", "mem_mb"),
+        runtime = get_resource("seurat_align_slides", "runtime")
+    conda: "envs/seurat.yaml"
+    script: "scripts/seurat_align_slides.R"
+
+rule paste_align_coordinates:
+    input:
+        raw_counts = f"{OUTDIR}/{{patient}}/seurat/qc/{{patient}}_{{slide}}_raw_counts.tsv",
+        coordinates = f"{OUTDIR}/{{patient}}/seurat/qc/{{patient}}_{{slide}}_coordinates.tsv",
+        ref_raw_counts = f"{OUTDIR}/{{patient}}/seurat/qc/{{patient}}_slide1_raw_counts.tsv",
+        ref_coordinates = f"{OUTDIR}/{{patient}}/seurat/qc/{{patient}}_slide1_coordinates.tsv"
+    output:
+        coordinates_aligned = f"{OUTDIR}/{{patient}}/paste/align/{{slide}}_vs_slide1_coordinates_aligned.tsv",
+        ref_coordinates_aligned = f"{OUTDIR}/{{patient}}/paste/align/slide1_vs_{{slide}}_coordinates_aligned.tsv"
+    log: f"{LOGDIR}/{{patient}}/paste/align/slide1_and_{{slide}}_coordinates_aligned.log"
+    threads: 
+        get_resource("paste_align_coordinates", "threads")
+    resources:
+        mem_mb = get_resource("paste_align_coordinates", "mem_mb"),
+        runtime = get_resource("paste_align_coordinates", "runtime")
+    conda: "envs/paste.yaml"
+    script: "scripts/paste_align_coordinates.py"
+
+rule seurat_counts_and_coordinates:
+    input:
+        seurat = f"{OUTDIR}/{{patient}}/seurat/qc/{{patient}}_spatial_filtered.rds",
+        spots_pass = f"{OUTDIR}/{{patient}}/seurat/qc/{{patient}}_spots_pass.txt"
+    output: 
+        raw_counts = f"{OUTDIR}/{{patient}}/seurat/qc/{{patient}}_{{slide}}_raw_counts.tsv",
+        coordinates = f"{OUTDIR}/{{patient}}/seurat/qc/{{patient}}_{{slide}}_coordinates.tsv"
+    log: f"{LOGDIR}/{{patient}}/seurat/qc/{{patient}}_{{slide}}_counts_coordinates.log"
+    threads: 
+        get_resource("seurat_counts_and_coordinates", "threads")
+    resources:
+        mem_mb = get_resource("seurat_counts_and_coordinates", "mem_mb"),
+        runtime = get_resource("seurat_counts_and_coordinates", "runtime")
+    conda: "envs/seurat.yaml"
+    script: "scripts/seurat_counts_and_coordinates.R"
+
+rule seurat_qc:
+    input: f"{OUTDIR}/{{patient}}/seurat/raw/{{patient}}_spatial.rds"
+    output:
+        seurat = f"{OUTDIR}/{{patient}}/seurat/qc/{{patient}}_spatial_filtered.rds",
+        spots_pass = f"{OUTDIR}/{{patient}}/seurat/qc/{{patient}}_spots_pass.txt"
+    params:
+        mt_limits = lambda wildcards: get_parameters(wildcards.patient, param = "mt_limits"),
+        rb_limits = lambda wildcards: get_parameters(wildcards.patient, param = "rb_limits"),
+        count_limits = lambda wildcards: get_parameters(wildcards.patient, param = "count_limits"),
+        feat_limits = lambda wildcards: get_parameters(wildcards.patient, param = "feat_limits")
+    log: f"{LOGDIR}/{{patient}}/seurat/qc/{{patient}}_spatial_filtered.log"
+    threads: 
+        get_resource("seurat_qc", "threads")
+    resources:
+        mem_mb = get_resource("seurat_qc", "mem_mb"),
+        runtime = get_resource("seurat_qc", "runtime")
+    conda: "envs/seurat.yaml"
+    script: "scripts/seurat_qc.R"
+
+rule seurat_create_merged:
+    input: lambda wildcards: expand(f"{OUTDIR}/{{patient}}/seurat/raw/{{patient}}_{{slide}}_spatial.rds", \
+                                    patient = wildcards.patient, \
+                                    slide = get_slides(wildcards.patient))
+    output: f"{OUTDIR}/{{patient}}/seurat/raw/{{patient}}_spatial.rds"
+    log: f"{LOGDIR}/{{patient}}/seurat/raw/{{patient}}_spatial.log"
+    threads: 
+        get_resource("seurat_create_merged", "threads")
+    resources:
+        mem_mb = get_resource("seurat_create_merged", "mem_mb"),
+        runtime = get_resource("seurat_create_merged", "runtime")
+    conda: "envs/seurat.yaml"
+    script: "scripts/seurat_merge.R"
+
+rule seurat_create_spatial:
+    input: 
+        Wu_et_al = f"{DATADIR}/pat/Wu_et_al_images.pdf",
+        genomics10x = f"{DATADIR}/pat/10x_Ductal_Carcinoma.png"
+    output: f"{OUTDIR}/{{patient}}/seurat/raw/{{patient}}_{{slide}}_spatial.rds"
+    params:
+        matrix = f"{DATADIR}/filtered_cnts/{{patient}}_filtered_count_matrix/{{slide}}/matrix.mtx.gz",
+        metadata = f"{DATADIR}/meta/{{patient}}_metadata_{{slide}}.csv",
+        image = f"{DATADIR}/imgs/{{patient}}_spatial/{{slide}}/tissue_lowres_image.png",
+        gene_column = lambda wildcards: get_parameters(wildcards.patient, param = "gene_column", param_type = int)
+    log: f"{LOGDIR}/{{patient}}/seurat/raw/{{patient}}_{{slide}}_spatial.log"
+    threads: 
+        get_resource("seurat_create_spatial", "threads")
+    resources:
+        mem_mb = get_resource("seurat_create_spatial", "mem_mb"),
+        runtime = get_resource("seurat_create_spatial", "runtime")
+    conda: "envs/seurat.yaml"
+    script: "scripts/seurat_create.R"

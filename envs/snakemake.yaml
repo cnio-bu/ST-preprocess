@@ -1,0 +1,10 @@
+name: snakemake
+channels:
+  - bu_cnio
+  - conda-forge
+  - bioconda
+  - r
+dependencies:
+  - snakemake=7.19.0
+  - python=3.10.12
+prefix: /home/mjjimenez/mambaforge/envs/snakemake

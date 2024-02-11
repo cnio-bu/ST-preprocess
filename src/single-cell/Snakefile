@@ -1,0 +1,103 @@
+#### GLOBAL PARAMETERS ###
+configfile: "config.yaml"
+
+DATADIR = config["datadir"]
+OUTDIR = config["outdir"]
+LOGDIR = config["logdir"]
+split = config["params"]["deconvolution"]["split"]
+
+#### GLOBAL SCOPE FUNCTIONS ####
+def get_resource(rule,resource):
+    """
+    Gets resource for each rule.
+    """
+    try:
+        return config["resources"][rule][resource]
+    except KeyError:
+        return config["resources"]["default"][resource]
+
+#### RULES ####
+rule all:
+    input:
+        integrated =  f"{OUTDIR}/seurat/integrated/single_cell_integrated.rds", 
+        reference = expand(f"{OUTDIR}/spacexr/{{lvl}}/{{lvl}}_reference.rds", \
+                           lvl = config["params"]["deconvolution"]["levels"])
+
+rule seurat_integrate:
+    input: f"{OUTDIR}/seurat/qc/merged/single_cell_filtered.rds"
+    output: f"{OUTDIR}/seurat/integrated/single_cell_integrated.rds"
+    log: f"{LOGDIR}/seurat/integrated/single_cell_integrated.log"
+    threads: 
+        get_resource("seurat_integrate", "threads")
+    resources:
+        mem_mb = get_resource("seurat_integrate", "mem_mb"),
+        runtime = get_resource("seurat_integrate", "runtime")
+    conda: "envs/seurat.yaml"
+    script: "scripts/seurat_integrate.R"
+
+rule spacexr_reference:
+    input:
+        raw_counts = f"{OUTDIR}/seurat/qc/{split}/{{lvl}}/{{lvl}}_raw_counts.tsv",
+        metadata = f"{OUTDIR}/seurat/qc/{split}/{{lvl}}/{{lvl}}_metadata.tsv"
+    output: f"{OUTDIR}/spacexr/{{lvl}}/{{lvl}}_reference.rds"
+    params:
+        level = "{lvl}"
+    log: f"{LOGDIR}/spacexr/{{lvl}}/{{lvl}}_reference.log"
+    threads: 
+        get_resource("spacexr_reference", "threads")
+    resources:
+        mem_mb = get_resource("spacexr_reference", "mem_mb"),
+        runtime = get_resource("spacexr_reference", "runtime")
+    conda: "spacexr"
+    script: "scripts/spacexr_reference.R"
+
+rule seurat_split:
+    input: f"{OUTDIR}/seurat/qc/merged/single_cell_filtered.rds"
+    output: 
+        raw_counts = f"{OUTDIR}/seurat/qc/{split}/{{lvl}}/{{lvl}}_raw_counts.tsv",
+        metadata = f"{OUTDIR}/seurat/qc/{split}/{{lvl}}/{{lvl}}_metadata.tsv",
+        seurat = f"{OUTDIR}/seurat/qc/{split}/{{lvl}}/{{lvl}}_single_cell_filtered.rds"
+    params:
+        idents = split,
+        level = "{lvl}"
+    log: f"{LOGDIR}/seurat/qc/{split}/{{lvl}}/{{lvl}}_single_cell_filtered.log"
+    threads: 
+        get_resource("seurat_split", "threads")
+    resources:
+        mem_mb = get_resource("seurat_split", "mem_mb"),
+        runtime = get_resource("seurat_split", "runtime")
+    conda: "envs/seurat.yaml"
+    script: "scripts/seurat_split.R"
+
+rule seurat_qc:
+    input: f"{OUTDIR}/seurat/raw/single_cell.rds"
+    output: 
+        cells_pass = f"{OUTDIR}/seurat/qc/merged/cells_pass.txt",
+        seurat = f"{OUTDIR}/seurat/qc/merged/single_cell_filtered.rds"
+    params:
+        mt_limits = config["params"]["qc"]["mt_limits"],
+        rb_limits = config["params"]["qc"]["rb_limits"],
+        count_limits = config["params"]["qc"]["count_limits"],
+        feat_limits = config["params"]["qc"]["feat_limits"]
+    log: f"{LOGDIR}/seurat/qc/single_cell_filtered.log"
+    threads: 
+        get_resource("seurat_qc", "threads")
+    resources:
+        mem_mb = get_resource("seurat_qc", "mem_mb"),
+        runtime = get_resource("seurat_qc", "runtime")
+    conda: "envs/seurat.yaml"
+    script: "scripts/seurat_qc.R"
+
+rule seurat_create:
+    input: 
+        matrix = f"{DATADIR}/filtered_cnts/matrix.mtx.gz",
+        metadata = f"{DATADIR}/meta/metadata.csv"
+    output: f"{OUTDIR}/seurat/raw/single_cell.rds"
+    log: f"{LOGDIR}/seurat/raw/single_cell.log"
+    threads: 
+        get_resource("seurat_create", "threads")
+    resources:
+        mem_mb = get_resource("seurat_create", "mem_mb"),
+        runtime = get_resource("seurat_create", "runtime")
+    conda: "envs/seurat.yaml"
+    script: "scripts/seurat_create.R"

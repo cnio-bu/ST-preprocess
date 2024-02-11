@@ -1,0 +1,31 @@
+# Path to data directory
+datadir: ""
+
+# Path to results directory
+outdir: ""
+
+# Path to logs directory
+logdir: ""
+
+# Parameters
+params:
+  qc:
+    mt_limits: [0, 15]
+    rb_limits: [0, 40]
+    count_limits: [250, 50000]
+    feat_limits: [200, 7500]
+  
+  deconvolution:
+    split: "subtype"
+    levels: ["ER+", "HER2+", "TNBC"]
+
+# Resources
+resources:
+  default:
+    threads: 1
+    mem_mb: 64000
+    runtime: 480
+  spacexr_reference:
+    mem_mb: 128000
+  seurat_integrate:
+    mem_mb: 128000
