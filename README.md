@@ -32,7 +32,7 @@ We downloaded luminal and TNBC Visium ST data (CID4290, CID4535, 1142243F, 11609
 
 By leveraging a new version of Beyondcell [8] ([cnio-bu/beyondcell](https://github.com/cnio-bu/beyondcell/tree/master)), a tool for identifying tumour cell subpopulations with distinct drug response patterns, we predicted sensitivity to over 1,200 drugs while accounting for the spatial context and interaction between the tumour and TME compartments. Moreover, we also used Beyondcell to compute spot-wise functional enrichment scores and identify niche-specific biological functions. To do so, we used the preprocessed Seurat objects generated in this pipeline and two collections of gene signatures:
 
-* **SSc breast:** Collection of gene signatures used to predict sensitivity to > 1,200 drugs derived from breast cancer cell lines. The code used to create the SSc breast collection is available at [cnio-bu/drug_susceptibility_collection/tree/breast](https://github.com/cnio-bu/drug_susceptibility_collection/tree/breast).
+* **SSc breast:** Collection of gene signatures used to predict sensitivity to > 1,200 drugs derived from breast cancer cell lines. The code used to create the SSc breast collection is available at [cnio-bu/SSc-breast](https://github.com/cnio-bu/SSc-breast).
 
 * **Functional signatures:** Collection of gene signatures used to compute enrichment in different biological pathways.
 
