@@ -46,14 +46,18 @@ def get_slides(patient):
     slides = ["slide" + str(x) for x in range(1, n_slides + 1)]
     return slides
 
-def get_reference(patient):
+def get_reference(patient, type = "spacexr"):
     """
     Gets the path to the deconvolution reference for the specified patient, 
     according to the tumour subtype.
     """
     subtype = get_parameters(patient, param = "ref_deconvolution", param_type = str)[0]
-    path = config["params"]["deconvolution"]["ref_dir"] + "/" + subtype + \
-           "/" + subtype + "_reference.rds"
+    if type == "spacexr":
+        path = config["params"]["deconvolution"]["ref_dir"] + "/" + subtype + \
+            "/" + subtype + "_reference.rds"
+    elif type == "card":
+        path = os.path.dirname(config["params"]["deconvolution"]["ref_dir"]) + \
+            "/seurat/qc/subtype/" + subtype + "/" + subtype + "_single_cell_filtered.rds"
     return(path)
 
 #### PATIENTS TO ANALYZE ####
@@ -66,6 +70,18 @@ rule all:
                              patient = PATIENTS.index),
         functional = expand(f"{OUTDIR}/{{patient}}/beyondcell/scores/functional/{{patient}}_spatial_bcs_functional.rds", \
                              patient = PATIENTS.index)
+        benchmark_sensitivity = 
+            expand(f"{OUTDIR}/{{patient}}/beyondcell/scores/sensitivity/from_matrix/{{patient}}_scanpy_bcs_sensitivity.rds", \
+                   patient = PATIENTS.index),
+        benchmark_functional = 
+            expand(f"{OUTDIR}/{{patient}}/beyondcell/scores/functional/from_matrix/{{patient}}_scanpy_bcs_functional.rds", \
+                   patient = PATIENTS.index),
+        giotto_deconv = 
+            expand(f"{OUTDIR}/{{patient}}/annotations/deconvolution/giotto/{{patient}}_deconvolution.tsv", \
+                   patient = PATIENTS.index),
+        card_deconv = 
+            expand(f"{OUTDIR}/{{patient}}/annotations/deconvolution/card/{{patient}}_deconvolution.tsv", \
+                   patient = PATIENTS.index)
 
 rule beyondcell_score_functional:
     input: 
@@ -301,3 +317,165 @@ rule seurat_create_spatial:
         runtime = get_resource("seurat_create_spatial", "runtime")
     conda: "envs/seurat.yaml"
     script: "scripts/seurat_create.R"
+
+#### BENCHMARKING WITH OTHER TOOLS ####
+rule beyondcell_score_functional_from_matrix:
+    input: 
+        scanpy_norm_counts = f"{OUTDIR}/{{patient}}/scanpy/normalised/{{patient}}_spatial_normalised.tsv",
+        giotto_norm_counts = f"{OUTDIR}/{{patient}}/giotto/normalised/{{patient}}_spatial_normalised.tsv",
+        geneset = config["params"]["functional"]
+    output: 
+        scanpy_bc = f"{OUTDIR}/{{patient}}/beyondcell/scores/functional/from_matrix/{{patient}}_scanpy_bcs_functional.rds",
+        giotto_bc = f"{OUTDIR}/{{patient}}/beyondcell/scores/functional/from_matrix/{{patient}}_giotto_bcs_functional.rds"
+    params:
+        expr_thres = lambda wildcards: get_parameters(wildcards.patient, param = "expr_thres", param_type = float)
+    log: f"{LOGDIR}/{{patient}}/beyondcell/scores/functional/{{patient}}_from_matrix_bcs_functional.log"
+    threads: 
+        get_resource("beyondcell_score", "threads")
+    resources:
+        mem_mb = get_resource("beyondcell_score", "mem_mb"),
+        runtime = get_resource("beyondcell_score", "runtime")
+    conda: "envs/beyondcell.yaml"
+    script: "scripts/beyondcell_score_from_matrix.R"
+
+rule beyondcell_score_sensitivity_from_matrix:
+    input: 
+        scanpy_norm_counts = f"{OUTDIR}/{{patient}}/scanpy/normalised/{{patient}}_spatial_normalised.tsv",
+        giotto_norm_counts = f"{OUTDIR}/{{patient}}/giotto/normalised/{{patient}}_spatial_normalised.tsv",
+        geneset = config["params"]["ssc_breast"]
+    output: 
+        scanpy_bc = f"{OUTDIR}/{{patient}}/beyondcell/scores/sensitivity/from_matrix/{{patient}}_scanpy_bcs_sensitivity.rds",
+        giotto_bc = f"{OUTDIR}/{{patient}}/beyondcell/scores/sensitivity/from_matrix/{{patient}}_giotto_bcs_sensitivity.rds"
+    params:
+        expr_thres = lambda wildcards: get_parameters(wildcards.patient, param = "expr_thres", param_type = float)
+    log: f"{LOGDIR}/{{patient}}/beyondcell/scores/sensitivity/{{patient}}_from_matrix_bcs_sensitivity.log"
+    threads: 
+        get_resource("beyondcell_score", "threads")
+    resources:
+        mem_mb = get_resource("beyondcell_score", "mem_mb"),
+        runtime = get_resource("beyondcell_score", "runtime")
+    conda: "envs/beyondcell.yaml"
+    script: "scripts/beyondcell_score_from_matrix.R"
+
+rule card_merge:
+    input: lambda wildcards: expand(f"{OUTDIR}/{{patient}}/annotations/deconvolution/card/slides/{{patient}}_{{slide}}_deconvolution.tsv", \
+                                    patient = wildcards.patient, \
+                                    slide = get_slides(wildcards.patient))
+    output: f"{OUTDIR}/{{patient}}/annotations/deconvolution/card/{{patient}}_deconvolution.tsv"
+    log: f"{LOGDIR}/{{patient}}/annotations/deconvolution/card/{{patient}}_deconvolution.tsv"
+    threads:
+        get_resource("card_merge", "threads")
+    resources:
+        mem_mb = get_resource("card_merge", "mem_mb"),
+        runtime = get_resource("card_merge", "runtime")
+    conda: "card"
+    script: "scripts/card_merge.R"
+
+rule card_deconvolution:
+    input: 
+        ref = lambda wildcards: get_reference(wildcards.patient, type = "card"),
+        raw_counts = f"{OUTDIR}/{{patient}}/seurat/qc/{{patient}}_{{slide}}_raw_counts.tsv",
+        coordinates = f"{OUTDIR}/{{patient}}/seurat/qc/{{patient}}_{{slide}}_coordinates.tsv"
+    output: f"{OUTDIR}/{{patient}}/annotations/deconvolution/card/slides/{{patient}}_{{slide}}_deconvolution.tsv"
+    log: f"{LOGDIR}/{{patient}}/annotations/deconvolution/card/slides/{{patient}}_{{slide}}_deconvolution.log"
+    threads:
+        get_resource("card_deconvolution", "threads")
+    resources:
+        mem_mb = get_resource("card_deconvolution", "mem_mb"),
+        runtime = get_resource("card_deconvolution", "runtime")
+    conda: "card"
+    script: "scripts/card_deconvolution.R"
+
+rule giotto_merge:
+    input: 
+        norm_counts = lambda wildcards: expand(f"{OUTDIR}/{{patient}}/giotto/normalised/slides/{{patient}}_{{slide}}_spatial_normalised.tsv", \
+                                               patient = wildcards.patient, \
+                                               slide = get_slides(wildcards.patient)),
+        deconvolution = lambda wildcards: expand(f"{OUTDIR}/{{patient}}/annotations/deconvolution/giotto/slides/{{patient}}_{{slide}}_deconvolution.tsv", \
+                                                 patient = wildcards.patient, \
+                                                 slide = get_slides(wildcards.patient))
+    output: 
+        norm_counts = f"{OUTDIR}/{{patient}}/giotto/normalised/{{patient}}_spatial_normalised.tsv",
+        deconvolution = f"{OUTDIR}/{{patient}}/annotations/deconvolution/giotto/{{patient}}_deconvolution.tsv"
+    log: f"{LOGDIR}/{{patient}}/giotto/normalised/{{patient}}_spatial_normalised.log"
+    threads:
+        get_resource("giotto_merge", "threads")
+    resources:
+        mem_mb = get_resource("giotto_merge", "mem_mb"),
+        runtime = get_resource("giotto_merge", "runtime")
+    conda: "giotto"
+    script: "scripts/giotto_merge.R"
+
+rule giotto_deconvolution:
+    input: 
+        ref = lambda wildcards: get_reference(wildcards.patient),
+        giotto = f"{OUTDIR}/{{patient}}/giotto/normalised/slides/{{patient}}_{{slide}}_spatial_normalised.rds"
+    output: f"{OUTDIR}/{{patient}}/annotations/deconvolution/giotto/slides/{{patient}}_{{slide}}_deconvolution.tsv"
+    params:
+        giotto_ndim = lambda wildcards: get_parameters(wildcards.patient, param = "giotto_ndim", param_type = int)
+    log: f"{LOGDIR}/{{patient}}/annotations/deconvolution/giotto/slides/{{patient}}_{{slide}}_deconvolution.log"
+    threads:
+        get_resource("giotto_deconvolution", "threads")
+    resources:
+        mem_mb = get_resource("giotto_deconvolution", "mem_mb"),
+        runtime = get_resource("giotto_deconvolution", "runtime")
+    conda: "giotto"
+    script: "scripts/giotto_deconvolution.R"
+
+rule giotto_normalise:
+    input: f"{OUTDIR}/{{patient}}/seurat/qc/{{patient}}_spatial_filtered.rds"
+    output: 
+        giotto = f"{OUTDIR}/{{patient}}/giotto/normalised/slides/{{patient}}_{{slide}}_spatial_normalised.rds",
+        norm_counts = f"{OUTDIR}/{{patient}}/giotto/normalised/slides/{{patient}}_{{slide}}_spatial_normalised.tsv"
+    params:
+        regress_cell_cycle = lambda wildcards: get_parameters(wildcards.patient, param = "regress_cell_cycle", param_type = bool),
+        idents = "slide",
+        level = "{slide}"
+    log: f"{LOGDIR}/{{patient}}/giotto/normalised/slides/{{patient}}_{{slide}}_spatial_normalised.log"
+    threads:
+        get_resource("giotto_normalise", "threads")
+    resources:
+        mem_mb = get_resource("giotto_normalise", "mem_mb"),
+        runtime = get_resource("giotto_normalise", "runtime")
+    conda: "giotto"
+    script: "scripts/giotto_normalise.R"
+
+rule scanpy_normalise:
+    input: 
+        cell_cycle = f"{DATADIR}/cellcycle_genes.tsv",
+        scanpy = lambda wildcards: expand(f"{OUTDIR}/{{patient}}/scanpy/raw/{{patient}}_{{slide}}_spatial.h5ad", \
+                                          patient = wildcards.patient, \
+                                          slide = get_slides(wildcards.patient)),
+        spots_pass = f"{OUTDIR}/{{patient}}/seurat/qc/{{patient}}_spots_pass.txt"
+    output: f"{OUTDIR}/{{patient}}/scanpy/normalised/{{patient}}_spatial_normalised.tsv"
+    params:
+        regress_cell_cycle = lambda wildcards: get_parameters(wildcards.patient, param = "regress_cell_cycle", param_type = bool)
+    log: f"{LOGDIR}/{{patient}}/scanpy/normalised/{{patient}}_spatial_normalised.log"
+    threads:
+        get_resource("scanpy_normalise", "threads")
+    resources:
+        mem_mb = get_resource("scanpy_normalise", "mem_mb"),
+        runtime = get_resource("scanpy_normalise", "runtime")
+    conda: "envs/scanpy.yaml"
+    script: "scripts/scanpy_normalise.py"
+
+rule scanpy_create_spatial:
+    input:
+        Wu_et_al = f"{DATADIR}/pat/Wu_et_al_images.pdf",
+        genomics10x = f"{DATADIR}/pat/10x_Ductal_Carcinoma.png"
+    output: f"{OUTDIR}/{{patient}}/scanpy/raw/{{patient}}_{{slide}}_spatial.h5ad"
+    params:
+        matrix = f"{DATADIR}/filtered_cnts/unzip/{{patient}}_filtered_count_matrix/{{slide}}/matrix.mtx",
+        barcodes = f"{DATADIR}/filtered_cnts/unzip/{{patient}}_filtered_count_matrix/{{slide}}/barcodes.tsv",
+        features = f"{DATADIR}/filtered_cnts/unzip/{{patient}}_filtered_count_matrix/{{slide}}/features.tsv",
+        metadata = f"{DATADIR}/meta/{{patient}}_metadata_{{slide}}.csv",
+        coordinates = f"{DATADIR}/imgs/{{patient}}_spatial/{{slide}}/tissue_positions_list.csv",
+        gene_column = lambda wildcards: get_parameters(wildcards.patient, param = "gene_column", param_type = int)
+    log: f"{LOGDIR}/{{patient}}/scanpy/raw/{{patient}}_{{slide}}_spatial.log"
+    threads:
+        get_resource("scanpy_create_spatial", "threads")
+    resources:
+        mem_mb = get_resource("scanpy_create_spatial", "mem_mb"),
+        runtime = get_resource("scanpy_create_spatial", "runtime")
+    conda: "envs/scanpy.yaml"
+    script: "scripts/scanpy_create_spatial.py"

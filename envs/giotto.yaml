@@ -1,0 +1,17 @@
+name: giotto
+channels:
+  - bu_cnio
+  - conda-forge
+  - bioconda
+  - r
+dependencies:
+  - r-devtools
+  - r-terra
+  - ca-certificates
+  - openssl
+  - conda-forge::r-pak
+  - conda-forge::r-magick
+  - r-seurat
+  - r-tidyverse
+  - conda-forge::r-biocmanager
+prefix: /home/mjjimenez/mambaforge/envs/giotto
