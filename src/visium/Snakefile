@@ -69,7 +69,7 @@ rule all:
         sensitivity = expand(f"{OUTDIR}/{{patient}}/beyondcell/scores/sensitivity/{{patient}}_spatial_bcs_sensitivity.rds", \
                              patient = PATIENTS.index),
         functional = expand(f"{OUTDIR}/{{patient}}/beyondcell/scores/functional/{{patient}}_spatial_bcs_functional.rds", \
-                             patient = PATIENTS.index)
+                             patient = PATIENTS.index),
         benchmark_sensitivity = 
             expand(f"{OUTDIR}/{{patient}}/beyondcell/scores/sensitivity/from_matrix/{{patient}}_scanpy_bcs_sensitivity.rds", \
                    patient = PATIENTS.index),
