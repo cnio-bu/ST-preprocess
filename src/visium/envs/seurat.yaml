@@ -9,3 +9,7 @@ dependencies:
   - r-seuratobject=4.1.3
   - r-tidyverse=2.0.0
   - r-patchwork=1.1.3
+<<<<<<< HEAD
+  - r-ggplot2=3.4.4
+=======
+>>>>>>> f185c2e1779fe226ebcf817cf1130152845c84f6

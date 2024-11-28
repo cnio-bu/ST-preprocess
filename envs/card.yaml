@@ -1,0 +1,14 @@
+name: card
+channels:
+  - bu_cnio
+  - conda-forge
+  - bioconda
+  - r
+dependencies:
+  - r-devtools
+  - r-concaveman
+  - ca-certificates
+  - openssl
+  - r-seurat
+  - r-tidyverse
+prefix: /home/mjjimenez/mambaforge/envs/card
