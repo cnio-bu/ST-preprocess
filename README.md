@@ -1,7 +1,7 @@
 # ST-preprocess
 This repository contains two [snakemake](https://snakemake.readthedocs.io/en/stable/#) pipelines to preprocess 10x Visium data:
 
-* **single-cell:** Pipeline to filter single-cell RNA-seq data and create deconvolution references.
+* **single-cell:** Pipeline to filter single-cell RNA-seq data and create RCTD [1] deconvolution references.
 * **visium:** Pipeline to filter and normalise Visium spatial transcriptomics data, align slides, perform cell type deconvolution, identify tumour spots, infer cancer subclones and compute beyondcell scores.
 
 These two pipelines must be executed in sequential order since the output of single-cell is the input of visium.
@@ -10,7 +10,7 @@ These two pipelines must be executed in sequential order since the output of sin
 This code was developed to preprocess the data analysed in the study "Spatial Transcriptomics in Breast Cancer Reveals Tumour Microenvironment-Driven Drug Responses and Clonal Therapeutic Heterogeneity" Nevertheless, the code is modular so that it can be customised for other analyses.
 
 ### Single-cell pipeline
-From the Single Cell Portal (ID: [SCP1039](https://singlecell.broadinstitute.org/single_cell/study/SCP1039/a-single-cell-and-spatially-resolved-atlas-of-human-breast-cancers)), we downloaded single-cell RNA-seq (scRNA-seq) data from 26 primary breast cancer tumours (11 luminal, 5 HER2+ and 10 TNBCs)[1]. 
+From the Single Cell Portal (ID: [SCP1039](https://singlecell.broadinstitute.org/single_cell/study/SCP1039/a-single-cell-and-spatially-resolved-atlas-of-human-breast-cancers)), we downloaded single-cell RNA-seq (scRNA-seq) data from 26 primary breast cancer tumours (11 luminal, 5 HER2+ and 10 TNBCs)[2]. 
 
 The single-cell pipeline takes two inputs:
 
@@ -22,7 +22,7 @@ And performs the following steps:
 * Creates a merged Seurat object with data from all tumours.
 * Filters the cells according to user-supplied thresholds. 
 * Splits the filtered object into different Seurat objects according to a specified metadata column (in our case, the breast cancer subtype).
-* Creates a deconvolution reference for each split level using RCTD [2]. 
+* Creates a deconvolution reference for each split level using RCTD. 
 * Creates an integrated object with all data.
 
 The output of the single-cell pipeline is the deconvolution references required in the visium pipeline. They are stored in the `resultspath/spacexr/` folder as `{split_level}/{split_level}_reference.rds` files.
@@ -55,17 +55,20 @@ And performs the following steps:
 * Creates a Seurat object for each sample, with several slides if available.
 * Filters the spots according to sample-specific user-supplied thresholds.
 * Aligns the slides of the same sample with PASTE [9].
-* Normalises the expression counts using the SCTransform function from Seurat, regressing the cell cycle effect if necessary. 
+* Normalises the expression counts using the SCTransform function from Seurat [10], regressing the cell cycle effect if necessary. 
 * Deconvolves the cell types in each spot using using RCTD.
-* Estimates the tumour purity of each spot with ESTIMATE [10].
+* Estimates the tumour purity of each spot with ESTIMATE [11].
 * Labels as "tumour" the spots that meet at least 2 of these criteria:
 
     - Annotated as "Ductal carcinoma in situ" or containing the "cancer" keyword according to the pathologist.
     - Scaled ESTIMATE score <=0.4.
     - Proportion of deconvoluted cancer cells >=0.6.
 
-* Infers the clonal composition of the tumour spots in each sample using SCEVAN [11] and the non-tumour spots as reference.
+* Infers the clonal composition of the tumour spots in each sample using SCEVAN [12] and the non-tumour spots as reference.
 * Computes beyondcell scores for the drug sensitivity and functional signatures.
+* Performs a benchmark with other normalisation methods and spot-deconvolution tools:
+    - Beyondcell sensitivity and functional objects are also computed using Scanpy normalisation with log-transformation [13] or Giotto normalisation with log-transformation and z-scoring [14]. The output of these two methods can be compared to Seurat SCTransform, our final selection.
+    - Spot-wise deconvolution is also performd with CARD [15] and the spatialDWLS method [16] implemented in Giotto, two deconvolution tools that can be compared to RCTD, our final selection.
 
 **Software Versions**
 
@@ -76,13 +79,16 @@ And performs the following steps:
 | PASTE      | Slide alignment                                                | v1.3.0   |
 | ESTIMATE   | Tumour purity estimation                                       | v1.0.13  |
 | SCEVAN     | Cancer subclone inference                                      | v1.0.1   |
-| Beyondcell | Spot-wise drug sensitivity prediction or functional enrichment | v2.2.0  |
+| Beyondcell | Spot-wise drug sensitivity prediction or functional enrichment | v2.2.0   |
+| SCANPY     | Data preprocessing and normalisation                           | v1.10.3  |
+| Giotto     | Data preprocessing, normalisation and spot deconvolution       | v4.1.5   |
+| CARD       | Spot deconvolution                                             | v1.1     |
 
 **References**
 
-1. Wu SZ, Al-Eryani G, Roden DL, Junankar S, Harvey K, Andersson A, et al. [A single-cell and spatially resolved atlas of human breast cancers.](https://www.nature.com/articles/s41588-021-00911-1) *Nat Genet.* 2021;**53**:1334–47.
+1. Cable DM, Murray E, Zou LS, Goeva A, Macosko EZ, Chen F, et al. [Robust decomposition of cell type mixtures in spatial transcriptomics.](https://pubmed.ncbi.nlm.nih.gov/33603203/) *Nat Biotechnol.* 2022;**40**(4):517–26.
 
-2. Cable DM, Murray E, Zou LS, Goeva A, Macosko EZ, Chen F, et al. [Robust decomposition of cell type mixtures in spatial transcriptomics.](https://pubmed.ncbi.nlm.nih.gov/33603203/) *Nat Biotechnol.* 2022;**40**:517–26.
+2. Wu SZ, Al-Eryani G, Roden DL, Junankar S, Harvey K, Andersson A, et al. [A single-cell and spatially resolved atlas of human breast cancers.](https://www.nature.com/articles/s41588-021-00911-1) *Nat Genet.* 2021;**53**(9):1334–47.
 
 3. 10x Genomics. [Human Breast Cancer (Block A Section 1), Spatial Gene Expression Dataset by Space Ranger 1.1.0.](https://www.10xgenomics.com/resources/datasets/human-breast-cancer-block-a-section-1-1-standard-1-1-0) 2020. Accessed 16 Jun 2023.
 
@@ -94,13 +100,23 @@ And performs the following steps:
 
 7. 10x Genomics. [Loupe Browser. Version 5.0.1.](https://www.10xgenomics.com/products/visium-analysis#loupe-browser) 2021.
 
-8. Fustero-Torre C, Jiménez-Santos MJ, García-Martín S, Carretero-Puche C, García-Jimeno L, Ivanchuk V, et al. [Beyondcell: targeting cancer therapeutic heterogeneity in single-cell RNA-seq data.](https://genomemedicine.biomedcentral.com/articles/10.1186/s13073-021-01001-x) *Genome Med.* 2021;**13**:187.
+8. Fustero-Torre C, Jiménez-Santos MJ, García-Martín S, Carretero-Puche C, García-Jimeno L, Ivanchuk V, et al. [Beyondcell: targeting cancer therapeutic heterogeneity in single-cell RNA-seq data.](https://genomemedicine.biomedcentral.com/articles/10.1186/s13073-021-01001-x) *Genome Med.* 2021;**13**(1):187.
 
-9. Zeira R, Land M, Strzalkowski A, Raphael BJ. [Alignment and integration of spatial transcriptomics data.](https://www.nature.com/articles/s41592-022-01459-6) *Nat Methods.* 2022;**19**:567-575.
+9. Zeira R, Land M, Strzalkowski A, Raphael BJ. [Alignment and integration of spatial transcriptomics data.](https://www.nature.com/articles/s41592-022-01459-6) *Nat Methods.* 2022;**19**(5):567-575.
+    
+10. Hafemeister C, Satija R. [Normalization and variance stabilization of single-cell RNA-seq data using regularized negative binomial regression.](https://genomebiology.biomedcentral.com/articles/10.1186/s13059-019-1874-1) *Genome Biol.* 2019;**20**(1):296.
 
-10. Yoshihara K, Shahmoradgoli M, Martínez E, Vegesna R, Kim H, Torres-Garcia W, et al. [Inferring tumour purity and stromal and immune cell admixture from expression data.](https://www.nature.com/articles/ncomms3612) *Nat Commun.* 2013;**4**:2612.
+11. Yoshihara K, Shahmoradgoli M, Martínez E, Vegesna R, Kim H, Torres-Garcia W, et al. [Inferring tumour purity and stromal and immune cell admixture from expression data.](https://www.nature.com/articles/ncomms3612) *Nat Commun.* 2013;**4**:2612.
 
-11. De Falco A, Caruso F, Su X-D, Iavarone A, Ceccarelli M. [A variational algorithm to detect the clonal copy number substructure of tumors from scRNA-seq data.](https://www.nature.com/articles/s41467-023-36790-9) *Nat Commun.* 2023;**14**:1074.
+12. De Falco A, Caruso F, Su X-D, Iavarone A, Ceccarelli M. [A variational algorithm to detect the clonal copy number substructure of tumors from scRNA-seq data.](https://www.nature.com/articles/s41467-023-36790-9) *Nat Commun.* 2023;**14**(1):1074.
+    
+13. Wolf FA, Angerer P, Theis FJ. [SCANPY: large-scale single-cell gene expression data analysis.](https://genomebiology.biomedcentral.com/articles/10.1186/s13059-017-1382-0) *Genome Biol.* 2018;**19**(1):15.
+    
+14. Dries R, Zhu Q, Dong R, Eng CL, Li H, Liu K, Fu Y, Zhao T, Sarkar A, Bao F, George RE, Pierson N, Cai L, Yuan GC. [Giotto: a toolbox for integrative analysis and visualization of spatial expression data.](https://genomebiology.biomedcentral.com/articles/10.1186/s13059-021-02286-2) *Genome Biol.* 2021;**22**(1):78.
+    
+15. Ma Y, Zhou X. [Spatially informed cell-type deconvolution for spatial transcriptomics.](https://www.nature.com/articles/s41587-022-01273-7) *Nat Biotechnol.* 2022;**40**(9):1349-1359.
+    
+16. Dong R, Yuan GC. [SpatialDWLS: accurate deconvolution of spatial transcriptomic data.](https://genomebiology.biomedcentral.com/articles/10.1186/s13059-021-02362-7) *Genome Biol.* 2021;**22**(1):145.
 
 ## Installation
 The code in this repository extensively uses Snakemake's integration with the [conda](https://docs.conda.io/en/latest/) package manager to take care of software requirements and dependencies automatically.
@@ -181,6 +197,7 @@ You need to modify the configuration files:
     - **mt_limits, rb_limits, count_limits, feat_limits:** The limits to filter out low-quality spots.
     - **regress_cell_cycle:** Whether or not regress the cell cycle effect.
     - **expr_thres:** Beyondcell parameter. Minimum fraction of signature genes that must be expressed in a spot to compute its beyondcell score.
+    - **giotto_ndim**: Number of dimensions to use in Giotto's dimensionality reduction.
 
 Please note that the data folder must have this structure:
 
@@ -196,6 +213,16 @@ Please note that the data folder must have this structure:
 │   │   │   │   ├── matrix.mtx.gz
 │   │   │   │   ├── features.tsv.gz
 │   │   │   │   ├── barcodes.tsv.gz
+│   │   ├── unzip
+│   │   │   ├── {patient}_filtered_count_matrix
+│   │   │   │   ├── slide1
+│   │   │   │   │   ├── matrix.mtx
+│   │   │   │   │   ├── features.tsv
+│   │   │   │   │   ├── barcodes.tsv
+│   │   │   │   ├── slide2
+│   │   │   │   │   ├── matrix.mtx
+│   │   │   │   │   ├── features.tsv
+│   │   │   │   │   ├── barcodes.tsv
 │   ├── meta
 │   │   ├── {patient}_metadata_slide1.csv
 │   │   ├── {patient}_metadata_slide2.csv
@@ -211,12 +238,14 @@ Please note that the data folder must have this structure:
 │   │   │   │   ├── tissue_positions_list.csv
 ```
 
-Also, create named conda environments for ESTIMATE and SCEVAN:
+Also, create named conda environments for ESTIMATE, SCEVAN, CARD and Giotto:
 
 ```
 # Create environments with dependencies from the YAML receipts
 conda env create -f envs/estimate.yaml
 conda env create -f envs/scevan.yaml
+conda env create -f envs/card.yaml
+conda env create -f envs/giotto.yaml
 
 # Install ESTIMATE from within R
 conda activate estimate
@@ -230,6 +259,20 @@ conda activate scevan
 R
 devtools::install_github("miccec/yaGST")
 devtools::install_github("AntonioDeFalco/SCEVAN")
+q()
+conda deactivate
+
+# Install CARD from within R
+conda activate card
+R
+devtools::install_github("YingMa0107/CARD")
+q()
+conda deactivate
+
+# Install Giotto from within R
+conda activate giotto
+R
+pak::pkg_install("drieslab/Giotto")
 q()
 conda deactivate
 ```

@@ -1,0 +1,6 @@
+name: scanpy
+channels:
+  - conda-forge
+dependencies:
+  - scanpy=1.10.3
+  - anndata=0.10.9

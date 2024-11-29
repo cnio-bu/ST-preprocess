@@ -39,6 +39,15 @@ resources:
   seurat_clusters:
     mem_mb: 64000
     runtime: 1440
+  beyondcell_score:
+    mem_mb: 64000
+    runtime: 1440
   beyondcell_clusters:
+    mem_mb: 64000
+    runtime: 1440
+  giotto_deconvolution:
+    mem_mb: 64000
+    runtime: 1440
+  card_deconvolution:
     mem_mb: 64000
     runtime: 1440
